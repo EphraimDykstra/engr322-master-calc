@@ -39,7 +39,7 @@
   // UI_BUILD is the human-visible build label shown in the topbar; bump whenever
   // ui.js / modules.js change so the user can confirm fresh code loaded.
   // STATE_VERSION is bumped only when the saved-state SHAPE changes (purges localStorage).
-  var UI_BUILD = 3;
+  var UI_BUILD = 4;
   var STATE_VERSION = 2;
   var VERSION_KEY = 'engr322_state_version';
 

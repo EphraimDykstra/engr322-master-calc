@@ -234,32 +234,54 @@
           { key:'dm', label:'Mean diameter dm', unit:'in', default:1.0 },
           { key:'muf',label:'μ_f',     unit:'', default:0.155 },
           { key:'alpha', label:'α',  unit:'deg', default:14.5 },
+          { key:'muc', label:'Collar μ_c (0 if no collar)', unit:'', default:0 },
+          { key:'rc',  label:'Collar mean radius r_c', unit:'in', default:0 },
           { key:'rpm', label:'Rotation speed', unit:'rpm', default:30 }
         ],
         outputs:[
-          { key:'Tr', label:'Raise torque',  unit:'lb·in', fmt:'fixed2' },
-          { key:'Tl', label:'Lower torque',  unit:'lb·in', fmt:'fixed2' },
-          { key:'eta',label:'Efficiency η',  unit:'', fmt:'fixed3' },
-          { key:'HP', label:'Input power',   unit:'HP', fmt:'fixed3' },
-          { key:'lock', label:'Self-locking?', unit:'', fmt:'text' }
+          { key:'Tthr_R', label:'Thread torque (raise)', unit:'lb·in', fmt:'fixed2' },
+          { key:'Tthr_L', label:'Thread torque (lower)', unit:'lb·in', fmt:'fixed2' },
+          { key:'Tcol',   label:'Collar torque T_c = μ_c·W·r_c', unit:'lb·in', fmt:'fixed2' },
+          { key:'Tr',     label:'TOTAL raise torque', unit:'lb·in', fmt:'fixed2' },
+          { key:'Tl',     label:'TOTAL lower torque', unit:'lb·in', fmt:'fixed2' },
+          { key:'eta',    label:'Efficiency η (raise, with collar)', unit:'', fmt:'fixed3' },
+          { key:'omega',  label:'Angular velocity ω = 2π·n/60', unit:'rad/s', fmt:'fixed3' },
+          { key:'vlift',  label:'Linear lift speed v = l·n/12', unit:'ft/min', fmt:'fixed3' },
+          { key:'HP_R',   label:'Power to raise', unit:'HP', fmt:'fixed3' },
+          { key:'HP_L',   label:'Power to lower', unit:'HP', fmt:'fixed3' },
+          { key:'lock',   label:'Self-locking?', unit:'', fmt:'text' }
         ],
         verdict: null,
         compute(s){
           const W=num(s.W),l=num(s.l),dm=num(s.dm),muf=num(s.muf),alpha=num(s.alpha),rpm=num(s.rpm);
+          const muc=num(s.muc,0), rc=num(s.rc,0);
           const lambda=deg(Math.atan(l/(PI*dm)));
-          const Tr=(W*dm/2)*((l+PI*muf*dm)/(PI*dm-muf*l));
-          const Tl=(W*dm/2)*((PI*muf*dm-l)/(PI*dm+muf*l));
+          // Thread-only torques
+          const Tthr_R=(W*dm/2)*((l+PI*muf*dm)/(PI*dm-muf*l));
+          const Tthr_L=(W*dm/2)*((PI*muf*dm-l)/(PI*dm+muf*l));
+          // Collar adds drag in BOTH directions
+          const Tcol = muc*W*rc;
+          const Tr = Tthr_R + Tcol;
+          const Tl = Tthr_L + Tcol;
+          // Overall efficiency uses raise torque
           const eta=(W*l)/(2*PI*Tr);
-          const HP=(Tr*rpm)/63025;
-          // Self-lock per Excel: friction angle φ vs lead angle. φ = atan(μ_f). YES if φ>λ.
+          // Power: use ω·T conversion. 6600 in·lb/s = 1 HP, ω in rad/s
+          const omega = 2*PI*rpm/60;
+          const HP_R = Tr*omega/6600;
+          const HP_L = Tl*omega/6600;
+          // Lift speed
+          const vlift = l*rpm/12;
           const phi=deg(Math.atan(muf));
           const lock = phi>lambda ? 'YES — Self-Locking' : 'NO — Will Backdrive';
-          return {outputs:{Tr,Tl,eta,HP,lock},
+          return {outputs:{Tthr_R,Tthr_L,Tcol,Tr,Tl,eta,omega,vlift,HP_R,HP_L,lock},
             math:{symbolic:[
-              'T_r = (W·dm/2)·(l + π·μ_f·dm)/(π·dm − μ_f·l)',
-              'T_l = (W·dm/2)·(π·μ_f·dm − l)/(π·dm + μ_f·l)',
-              'η = W·l/(2π·T_r)',
-              'HP = T_r·n/63025',
+              'T_thread_R = (W·dm/2)·(l + π·μ_f·dm)/(π·dm − μ_f·l)',
+              'T_thread_L = (W·dm/2)·(π·μ_f·dm − l)/(π·dm + μ_f·l)',
+              'T_collar   = μ_c · W · r_c',
+              'T_total_R  = T_thread_R + T_collar',
+              'η = W·l/(2π·T_total_R)',
+              'ω = 2π·n/60     v = l·n/12 ft/min',
+              'P[HP] = T·ω / 6600     (6600 in·lb/s = 1 HP)',
               'self-locking when φ = atan(μ_f) > λ'
             ]}};
         }
@@ -360,8 +382,124 @@
         }
       },
       {
+        id: 'direct',
+        title: '§4 Direct loading on welds',
+        blurb: 'Average shear or normal stress from a direct force on the throat area.',
+        inputs: [
+          { key:'F',  label:'Applied force F', unit:'lb', default:5000 },
+          { key:'Aw', label:'Total throat area A_w (from §1 or §2)', unit:'in²', default:3.18 },
+          { key:'kind', label:'Loading type', unit:'', default:'Shear', type:'select', options:['Shear','Normal'] }
+        ],
+        outputs:[
+          { key:'sigma_psi', label:'Direct stress (psi)', unit:'psi', fmt:'fixed1' },
+          { key:'sigma_ksi', label:'Direct stress (ksi)', unit:'ksi', fmt:'fixed4' },
+          { key:'kindOut',   label:'Stress kind',         unit:'',    fmt:'text' }
+        ],
+        compute(s){
+          const F=num(s.F), Aw=num(s.Aw);
+          const sigma_psi = Aw>0 ? F/Aw : null;
+          const sigma_ksi = sigma_psi==null ? null : sigma_psi/1000;
+          const kindOut = s.kind==='Normal' ? 'σ (normal)' : 'τ (shear)';
+          return {outputs:{sigma_psi,sigma_ksi,kindOut},
+            math:{symbolic:['τ = F / A_w  (shear loading)','σ = F / A_w  (normal loading)','A_w = throat·length·n_lines']}};
+        }
+      },
+      {
+        id: 'bend_tor',
+        title: '§5 Bending & torsion on weld group',
+        blurb: 'Bending stress σ_b = M·c/I and torsional shear τ_t = T·r/J at the worst point of a weld group.',
+        inputs:[
+          { key:'M',  label:'Bending moment M', unit:'lb·in', default:15000 },
+          { key:'T',  label:'Torque T',         unit:'lb·in', default:10000 },
+          { key:'I',  label:'I (from §2)',      unit:'in⁴',   default:28.6335 },
+          { key:'J',  label:'J (from §2)',      unit:'in⁴',   default:44.1875 },
+          { key:'c',  label:'c (max distance, bending)', unit:'in', default:3 },
+          { key:'rmax', label:'r_max (torsion)', unit:'in', default:3.6056 },
+          { key:'b',  label:'b (rectangle width — for τ_y component)', unit:'in', default:4 },
+          { key:'d',  label:'d (rectangle depth — for τ_x component)', unit:'in', default:6 }
+        ],
+        outputs:[
+          { key:'sigma_b', label:'Bending stress σ_b = M·c/I', unit:'psi', fmt:'fixed1' },
+          { key:'tau_t',   label:'Torsional shear at r_max τ_t = T·r/J', unit:'psi', fmt:'fixed1' },
+          { key:'tau_tx',  label:'Torsion x-component τ_x = T·(d/2)/J',  unit:'psi', fmt:'fixed1' },
+          { key:'tau_ty',  label:'Torsion y-component τ_y = T·(b/2)/J',  unit:'psi', fmt:'fixed1' }
+        ],
+        compute(s){
+          const M=num(s.M),T=num(s.T),I=num(s.I),J=num(s.J),c=num(s.c),rmax=num(s.rmax),b=num(s.b),d=num(s.d);
+          const sigma_b = I>0 ? M*c/I : null;
+          const tau_t   = J>0 ? T*rmax/J : null;
+          const tau_tx  = J>0 ? T*(d/2)/J : null;
+          const tau_ty  = J>0 ? T*(b/2)/J : null;
+          return {outputs:{sigma_b,tau_t,tau_tx,tau_ty},
+            math:{symbolic:['σ_b = M·c / I','τ_t = T·r_max / J','τ_x = T·(d/2)/J','τ_y = T·(b/2)/J']}};
+        }
+      },
+      {
+        id: 'combined',
+        title: '§6 Combined loading — resultant at critical point',
+        blurb: 'Vector sum of direct shear + moment-induced stresses at the worst point of the weld.',
+        inputs:[
+          { key:'tau_direct', label:'τ_direct (from §4)',  unit:'psi', default:1571.6 },
+          { key:'sigma_b',    label:'σ_b      (from §5)',  unit:'psi', default:1571.6 },
+          { key:'tau_tx',     label:'τ_x      (from §5)',  unit:'psi', default:678.9 },
+          { key:'tau_ty',     label:'τ_y      (from §5)',  unit:'psi', default:452.6 }
+        ],
+        outputs:[
+          { key:'tau_R_psi', label:'Resultant τ_R', unit:'psi', fmt:'fixed1' },
+          { key:'tau_R_ksi', label:'Resultant τ_R', unit:'ksi', fmt:'fixed4' }
+        ],
+        compute(s){
+          const td=num(s.tau_direct), sb=num(s.sigma_b), tx=num(s.tau_tx), ty=num(s.tau_ty);
+          const tau_R_psi = Math.hypot(td + tx, sb + ty);
+          return {outputs:{tau_R_psi, tau_R_ksi: tau_R_psi/1000},
+            math:{symbolic:['τ_R = √[(τ_direct + τ_x)² + (σ_b + τ_y)²]','Adjust signs based on direction at the critical point']}};
+        }
+      },
+      {
+        id: 'gear_weld_metric',
+        title: '§9 Circumferential weld gear-to-shaft (metric)',
+        blurb: 'Solve for required fillet leg h on a gear-to-shaft circumferential weld carrying a torque T.',
+        inputs:[
+          { key:'d',     label:'Shaft diameter d', unit:'mm',  default:35 },
+          { key:'T',     label:'Torque to transmit T', unit:'N·m', default:200 },
+          { key:'tau_a', label:'Allowable shear τ_allow', unit:'MPa', default:125 },
+          { key:'n',     label:'Factor of safety n', unit:'', default:1 },
+          { key:'h_chosen', label:'Chosen leg h (verify)', unit:'mm', default:1.5 }
+        ],
+        outputs:[
+          { key:'tau_d',   label:'Design shear τ_d = τ_allow / n', unit:'MPa',  fmt:'fixed3' },
+          { key:'t_req',   label:'Required throat t_req = 2T·1000 / (π·d²·τ_d)', unit:'mm', fmt:'fixed4' },
+          { key:'h_req',   label:'Required leg h_req = t_req / 0.707', unit:'mm', fmt:'fixed4' },
+          { key:'h_practical', label:'Practical leg (round up to next 0.5 mm)', unit:'mm', fmt:'fixed1' },
+          { key:'t_actual', label:'At chosen h: actual throat 0.707·h', unit:'mm', fmt:'fixed4' },
+          { key:'J_actual', label:'Polar moment J = π·d³·t/4', unit:'mm⁴', fmt:'fixed1' },
+          { key:'tau_actual', label:'Actual shear τ = T·1000·(d/2)/J', unit:'MPa', fmt:'fixed3' },
+          { key:'verdict_text', label:'Verdict (τ ≤ τ_allow ?)', unit:'', fmt:'text' }
+        ],
+        compute(s){
+          const d=num(s.d), T_Nm=num(s.T), ta=num(s.tau_a), n=Math.max(1e-9,num(s.n,1));
+          const h_chosen=num(s.h_chosen);
+          const T = T_Nm*1000;          // N·mm
+          const tau_d = ta/n;
+          const t_req = 2*T/(PI*d*d*tau_d);
+          const h_req = t_req/0.707;
+          const h_practical = Math.ceil(h_req/0.5)*0.5;
+          const t_actual = 0.707*h_chosen;
+          const J_actual = PI*Math.pow(d,3)*t_actual/4;
+          const tau_actual = J_actual>0 ? T*(d/2)/J_actual : null;
+          const verdict_text = (tau_actual!=null && tau_actual<=ta) ? 'SAFE — τ ≤ τ_allow' : 'FAILS — τ > τ_allow';
+          return {outputs:{tau_d,t_req,h_req,h_practical,t_actual,J_actual,tau_actual,verdict_text},
+            math:{symbolic:[
+              'Solve τ = T·r / J  with thin-ring J = π·d³·t/4',
+              't_req = 2T / (π·d²·τ_d)',
+              'h_req = t_req / 0.707  (fillet throat geometry)',
+              'Round h up to next standard 0.5 mm increment'
+            ]}};
+        }
+      },
+      {
         id: 'adhesive',
-        title: '§9 Adhesive bond (metric)',
+        title: '§7 Adhesive bond (metric)',
         blurb: 'Cylindrical lap-shear style bond — solve for required overlap length.',
         inputs:[
           { key:'F', label:'Axial load F', unit:'N', default:2000 },
@@ -533,6 +671,72 @@
           const delta=num(s.delta),D=num(s.D),Eo=num(s.Eo)*1e6,Ei=num(s.Ei)*1e6,co=num(s.co),nu=num(s.nu);
           const p = delta / ( D * ( (1/Eo)*((co*co+1)/(co*co-1) + nu) + (1/Ei)*(1-nu) ) );
           return {outputs:{p}, math:{symbolic:['p = δ / [D·((1/E_o)((c²+1)/(c²-1)+ν) + (1/E_i)(1-ν))]']}};
+        }
+      },
+      {
+        id: 'pressfit_metric',
+        title: '§5b Press / shrink fit (metric)',
+        blurb: 'Metric press-fit: gives interface pressure p, then torque capacity T = μ·p·π·d·L · (d/2).',
+        inputs:[
+          { key:'ds_max', label:'Shaft OD max d_s,max', unit:'mm', default:35.076 },
+          { key:'ds_min', label:'Shaft OD min d_s,min', unit:'mm', default:35.060 },
+          { key:'dh_max', label:'Hole ID max d_h,max',  unit:'mm', default:35.025 },
+          { key:'dh_min', label:'Hole ID min d_h,min',  unit:'mm', default:35.000 },
+          { key:'Dh',     label:'Hub OD D_h',          unit:'mm', default:75 },
+          { key:'L',      label:'Contact length L (for pressure calc)',     unit:'mm', default:15 },
+          { key:'L_t',    label:'Contact length for torque L_t', unit:'mm', default:50 },
+          { key:'Es',     label:'E shaft',              unit:'MPa', default:200000 },
+          { key:'Eh',     label:'E hub',                unit:'MPa', default:200000 },
+          { key:'nu',     label:"Poisson's ν (both)",   unit:'',    default:0.29 },
+          { key:'mu',     label:'Friction μ',           unit:'',    default:0.20 },
+          { key:'p_design', label:'Design pressure for torque p_d (0 = use p_min)', unit:'MPa', default:35 }
+        ],
+        outputs:[
+          { key:'delta_max', label:'Max diametral interference δ_max', unit:'mm', fmt:'fixed4' },
+          { key:'delta_min', label:'Min diametral interference δ_min', unit:'mm', fmt:'fixed4' },
+          { key:'delta_avg', label:'Expected interference δ (avg)',    unit:'mm', fmt:'fixed4' },
+          { key:'d_avg',     label:'Nominal interface diameter d',     unit:'mm', fmt:'fixed4' },
+          { key:'C',         label:'Diameter ratio C = D_h / d',       unit:'',   fmt:'fixed3' },
+          { key:'p',         label:'Interface pressure p (avg δ)',     unit:'MPa', fmt:'fixed2' },
+          { key:'p_min',     label:'Pressure at min interference',     unit:'MPa', fmt:'fixed2' },
+          { key:'p_max',     label:'Pressure at max interference',     unit:'MPa', fmt:'fixed2' },
+          { key:'Fn',        label:'Normal force on interface F_n',    unit:'N',   fmt:'fixed1' },
+          { key:'Ff',        label:'Friction force F_f = μ·F_n',       unit:'N',   fmt:'fixed1' },
+          { key:'T_Nmm',     label:'Max transmissible torque T',       unit:'N·mm', fmt:'fixed1' },
+          { key:'T_Nm',      label:'Max transmissible torque T',       unit:'N·m',  fmt:'fixed3' }
+        ],
+        compute(s){
+          const ds_max=num(s.ds_max), ds_min=num(s.ds_min);
+          const dh_max=num(s.dh_max), dh_min=num(s.dh_min);
+          const Dh=num(s.Dh), L=num(s.L), L_t=num(s.L_t,L);
+          const Es=num(s.Es), Eh=num(s.Eh), nu=num(s.nu), mu=num(s.mu);
+          const p_design_in = num(s.p_design,0);
+          const delta_max = ds_max - dh_min;
+          const delta_min = ds_min - dh_max;
+          const delta_avg = (delta_max + delta_min) / 2;
+          const d_avg = (ds_max + ds_min + dh_max + dh_min) / 4;
+          const C = Dh / d_avg;
+          // Press-fit pressure (same form as US, with ν shared between hub and shaft per Excel)
+          function pressure(delta){
+            return delta / ( d_avg * ( (1/Eh)*((C*C+1)/(C*C-1) + nu) + (1/Es)*(1 - nu) ) );
+          }
+          const p     = pressure(delta_avg);
+          const p_min = pressure(delta_min);
+          const p_max = pressure(delta_max);
+          // For torque: use override if provided, else conservative p_min
+          const p_torque = p_design_in > 0 ? p_design_in : p_min;
+          const Fn = p_torque * PI * d_avg * L_t;   // N
+          const Ff = mu * Fn;                       // N
+          const T_Nmm = Ff * d_avg / 2;             // N·mm
+          const T_Nm  = T_Nmm / 1000;
+          return {outputs:{delta_max,delta_min,delta_avg,d_avg,C,p,p_min,p_max,Fn,Ff,T_Nmm,T_Nm},
+            math:{symbolic:[
+              'δ = d_s − d_h     d = average of all four diameters',
+              'C = D_h / d',
+              'p = δ / { d · [ (1/E_h)·((C²+1)/(C²−1) + ν) + (1/E_s)·(1 − ν) ] }',
+              'F_n = p · π · d · L      F_f = μ · F_n',
+              'T_max = F_f · d/2'
+            ]}};
         }
       },
       {

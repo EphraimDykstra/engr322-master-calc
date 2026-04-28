@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Parity Tests · ENGR 322 Master Calculator</title>
-  <link rel="stylesheet" href="style.css?v=3" />
+  <link rel="stylesheet" href="style.css?v=4" />
   <style>
     .tests-wrap { padding: 16px 24px 64px; }
     .test-summary { display:flex; gap:16px; align-items:center; margin: 8px 0 16px; }
@@ -45,8 +45,8 @@
     </div>
   </div>
 
-  <script src="modules.js?v=3"></script>
-  <script src="ui.js?v=3"></script>
+  <script src="modules.js?v=4"></script>
+  <script src="ui.js?v=4"></script>
   <script>
   (function(){
     var SETTINGS = { FoS_Safe: 2.0, FoS_Marginal: 1.0 };
@@ -78,8 +78,13 @@
                  {key:'alpha', expected:14.5, tol:{abs:1e-9}} ] },
       { mod:'m40', sec:'torque', label:'Square thread raise: W=800, l=0.2, dm=1.15, μ=0.15',
         state:{ W:800, l:0.2, dm:1.15, muf:0.15, alpha:0, rpm:0 },
-        // Tr = (W·dm/2)·((l + π·μ·dm)/(π·dm − μ·l))
+        // Tr = (W·dm/2)·((l + π·μ·dm)/(π·dm − μ·l))  with no collar -> Tr = T_thread_R
         checks:[ {key:'Tr', expected:(800*1.15/2)*((0.2 + Math.PI*0.15*1.15)/(Math.PI*1.15 - 0.15*0.2)), tol:{rel:1e-9}} ] },
+      { mod:'m40', sec:'torque', label:'Collar drag adds μ_c·W·r_c   (W=2500, μ_c=0.09, r_c=0.75)',
+        state:{ W:2500, l:0.05, dm:0.9675, muf:0.13856, alpha:30, muc:0.09, rc:0.75, rpm:60 },
+        // Excel example: T_collar = 0.09·2500·0.75 = 168.75 in·lb;  v = 0.05·60/12 = 0.25 ft/min
+        checks:[ {key:'Tcol',  expected:0.09*2500*0.75, tol:{rel:1e-9}},
+                 {key:'vlift', expected:0.05*60/12,     tol:{rel:1e-9}} ] },
 
       // ---------------- M50 ----------------
       { mod:'m50', sec:'fillet', label:'1/4-in fillet leg, L=8, F=10000',
@@ -88,6 +93,27 @@
         checks:[ {key:'t',   expected:0.707*0.25,                    tol:{abs:1e-9}},
                  {key:'A',   expected:0.707*0.25*8,                  tol:{abs:1e-9}},
                  {key:'tau', expected:10000/(0.707*0.25*8),          tol:{rel:1e-9}} ] },
+      { mod:'m50', sec:'direct', label:'Direct shear F=5000 over A_w=3.18',
+        state:{ F:5000, Aw:3.18, kind:'Shear' },
+        // τ = 5000/3.18 = 1572.32 psi
+        checks:[ {key:'sigma_psi', expected:5000/3.18, tol:{rel:1e-9}} ] },
+      { mod:'m50', sec:'bend_tor', label:'Bending+torsion: M=15000, T=10000, I=28.6335, J=44.1875',
+        state:{ M:15000, T:10000, I:28.6335, J:44.1875, c:3, rmax:3.605551275463989, b:4, d:6 },
+        // σ_b = M·c/I = 15000·3/28.6335;  τ_t = T·r/J = 10000·3.6056/44.1875
+        checks:[ {key:'sigma_b', expected:15000*3/28.6335,                            tol:{rel:1e-6}},
+                 {key:'tau_t',   expected:10000*3.605551275463989/44.1875,            tol:{rel:1e-6}} ] },
+      { mod:'m50', sec:'combined', label:'Resultant from §4 components (Excel example)',
+        state:{ tau_direct:1571.5857300015716, sigma_b:1571.5857300015714,
+                tau_tx:678.925035360679, tau_ty:452.6166902404526 },
+        // τ_R = √[(τ_d + τ_x)² + (σ_b + τ_y)²] = 3026.91 psi  (Excel)
+        checks:[ {key:'tau_R_psi', expected:Math.hypot(1571.5857300015716+678.925035360679,
+                                                       1571.5857300015714+452.6166902404526), tol:{rel:1e-9}} ] },
+      { mod:'m50', sec:'gear_weld_metric', label:'Metric gear-to-shaft weld: T=200 N·m, d=35 mm, τ=125 MPa',
+        state:{ d:35, T:200, tau_a:125, n:1, h_chosen:1.5 },
+        // t_req = 2·200000 / (π·35²·125) = 0.8315 mm  (Excel)
+        // h_req = t_req/0.707 = 1.176 mm  → practical 1.5 mm
+        checks:[ {key:'t_req',       expected:2*200000/(Math.PI*35*35*125), tol:{rel:1e-6}},
+                 {key:'h_practical', expected:1.5,                          tol:{abs:1e-9}} ] },
       { mod:'m50', sec:'electrode', label:'E70 electrode',
         state:{ series:'E70' },
         // Lookup: E70 → Fu=70, Sus=57
@@ -120,6 +146,14 @@
         state:{ delta:0.001, D:1.0, Eo:30, Ei:30, co:2.0, nu:0.3 },
         // Eo, Ei in Mpsi; verify p > 0 and finite
         checks:[ {key:'p', expected:null, tol:{positive:true}} ] },
+      { mod:'m70', sec:'pressfit_metric', label:'Metric press fit (Excel example: 35 mm shaft into 75 mm hub)',
+        state:{ ds_max:35.076, ds_min:35.060, dh_max:35.025, dh_min:35.000,
+                Dh:75, L:15, L_t:50, Es:200000, Eh:200000, nu:0.29, mu:0.20, p_design:35 },
+        // Excel results: δ_max=0.076, δ_min=0.035, p_avg≈123.82 MPa, T_max≈675 N·m
+        checks:[ {key:'delta_max', expected:0.076,    tol:{rel:1e-6}},
+                 {key:'delta_min', expected:0.035,    tol:{rel:1e-6}},
+                 {key:'p',         expected:123.82,   tol:{rel:1e-2}},
+                 {key:'T_Nm',      expected:675.03,   tol:{rel:1e-2}} ] },
 
       // ---------------- M90 ----------------
       { mod:'m90', sec:'l10', label:'Ball L10 (C=10, P=2, a=3)',
