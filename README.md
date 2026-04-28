@@ -2,7 +2,7 @@
 
 A static web calculator covering the topics of Calvin University's **ENGR 322 — Machine Component Design**. Built as a vanilla HTML/JS port of a working Excel workbook so the same calculations are available from any browser, on any device, with no install.
 
-**Live site:** https://YOUR-GITHUB-USERNAME.github.io/engr322-master-calc/
+**Live site:** https://ephraimdykstra.github.io/engr322-master-calc/
 
 ## Modules
 
