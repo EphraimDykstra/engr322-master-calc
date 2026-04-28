@@ -39,7 +39,7 @@
   // UI_BUILD is the human-visible build label shown in the topbar; bump whenever
   // ui.js / modules.js change so the user can confirm fresh code loaded.
   // STATE_VERSION is bumped only when the saved-state SHAPE changes (purges localStorage).
-  var UI_BUILD = 4;
+  var UI_BUILD = 5;
   var STATE_VERSION = 2;
   var VERSION_KEY = 'engr322_state_version';
 
@@ -204,18 +204,21 @@
     // input/output two-column grid
     var grid = el('div', { class: 'io-grid' });
     var inBlock = el('div', { class: 'io-block' });
-    inBlock.appendChild(el('h4', {}, 'Inputs'));
+    inBlock.appendChild(el('h3', {}, 'Inputs'));
     var outBlock = el('div', { class: 'io-block' });
-    outBlock.appendChild(el('h4', {}, 'Outputs'));
+    outBlock.appendChild(el('h3', {}, 'Outputs'));
 
     // render inputs
     (sec.inputs || []).forEach(function (inp) {
       var row = el('div', { class: 'input-row' });
-      row.appendChild(el('label', { title: inp.label }, inp.label));
+      // Stable, unique id per input — ties <label for> to <input/select id> for screen readers.
+      var inputId = 'in-' + modId + '-' + sec.id + '-' + inp.key;
+      row.appendChild(el('label', { for: inputId, title: inp.label }, inp.label));
       var control;
       if (inp.options || inp.type === 'select') {
         var opts = normOptions(inp.options);
         control = el('select', {
+          id: inputId,
           on: { change: function (e) { secState[inp.key] = e.target.value; onChange(); } }
         });
         opts.forEach(function (o) {
@@ -227,6 +230,7 @@
         var ht = htmlInputType(inp.type);
         var step = inp.step != null ? inp.step : (inp.type === 'int' ? '1' : 'any');
         control = el('input', {
+          id: inputId,
           type: ht,
           step: step,
           value: secState[inp.key],
@@ -385,6 +389,8 @@
       var minRows = rep.minRows != null ? rep.minRows : 1;
       var removeBtn = el('button', {
         class: 'rep-btn',
+        'aria-label': 'Remove row ' + (rowIdx + 1),
+        title: 'Remove this row',
         on: {
           click: function () {
             if (secState[rep.key].length > minRows) {
@@ -549,14 +555,14 @@
     modal.appendChild(el('p', {}, 'Verdict mapping: SAFE if n ≥ Safe threshold; MARGINAL if Marginal ≤ n < Safe; FAILS if n < Marginal. These persist across all modules.'));
 
     var safeRow = el('div', { class: 'input-row' });
-    safeRow.appendChild(el('label', {}, 'Safe threshold (≥)'));
-    var safeInput = el('input', { type: 'number', step: '0.1', value: s.FoS_Safe });
+    safeRow.appendChild(el('label', { for: 'set-fos-safe' }, 'Safe threshold (≥)'));
+    var safeInput = el('input', { id: 'set-fos-safe', type: 'number', step: '0.1', value: s.FoS_Safe });
     safeRow.appendChild(safeInput);
     safeRow.appendChild(el('span', { class: 'unit' }, 'n'));
 
     var margRow = el('div', { class: 'input-row' });
-    margRow.appendChild(el('label', {}, 'Marginal threshold (≥)'));
-    var margInput = el('input', { type: 'number', step: '0.1', value: s.FoS_Marginal });
+    margRow.appendChild(el('label', { for: 'set-fos-marginal' }, 'Marginal threshold (≥)'));
+    var margInput = el('input', { id: 'set-fos-marginal', type: 'number', step: '0.1', value: s.FoS_Marginal });
     margRow.appendChild(margInput);
     margRow.appendChild(el('span', { class: 'unit' }, 'n'));
 
