@@ -1,0 +1,29 @@
+# macOS / iCloud junk
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# iCloud sync placeholders
+*.icloud
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+*~
+
+# Local testing scratch
+node_modules/
+*.log
+
+# Excel source (kept private — not for the public site)
+*.xlsx

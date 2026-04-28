@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Parity Tests · ENGR 322 Master Calculator</title>
+  <link rel="stylesheet" href="style.css?v=3" />
+  <style>
+    .tests-wrap { padding: 16px 24px 64px; }
+    .test-summary { display:flex; gap:16px; align-items:center; margin: 8px 0 16px; }
+    .test-pill { padding:4px 10px; border-radius:999px; font-weight:600; font-size:12px; }
+    .test-pill.pass { background:#0f2f1a; color:#7be29a; border:1px solid #1d5a36; }
+    .test-pill.fail { background:#3a1212; color:#ff8e8e; border:1px solid #6e1f1f; }
+    table.tests { width:100%; border-collapse: collapse; font-size: 13px; }
+    table.tests th, table.tests td { border-bottom:1px solid var(--border, #2a3142); padding: 6px 10px; text-align:left; vertical-align: top; }
+    table.tests th { background: var(--panel, #161b29); }
+    .ok  { color:#7be29a; font-weight:600; }
+    .bad { color:#ff8e8e; font-weight:600; }
+    .mono{ font-family: ui-monospace, Menlo, Consolas, monospace; }
+    .grp { font-weight:700; background:#11151f; }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div class="topbar">
+      <a class="brand" href="index.html">ENGR 322 <span class="sub">Master Calculator</span></a>
+      <div class="nav"><a class="navlink" href="index.html">Home</a></div>
+    </div>
+    <div class="tests-wrap container">
+      <h1>Parity Tests</h1>
+      <p class="subtitle">Spot-checks of computed values against the source Excel workbook. Tolerances are absolute or relative as noted; "—" means the case is qualitative (e.g. self-locking flag).</p>
+      <div class="test-summary" id="summary"></div>
+      <table class="tests" id="tbl">
+        <thead><tr>
+          <th style="width:90px">Module</th>
+          <th>Section / Case</th>
+          <th>Output</th>
+          <th>Computed</th>
+          <th>Expected</th>
+          <th>Tol</th>
+          <th>Result</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  <script src="modules.js?v=3"></script>
+  <script src="ui.js?v=3"></script>
+  <script>
+  (function(){
+    var SETTINGS = { FoS_Safe: 2.0, FoS_Marginal: 1.0 };
+
+    // Each test: pass `state` to mod.sections[i].compute, then check named outputs.
+    // tol: { abs: 1e-3 } or { rel: 0.005 }
+    var TESTS = [
+      // ---------------- M30 ----------------
+      { mod:'m30', sec:'sym', label:'Symmetric pattern: F=500 collinear, n=1, r=1, e=0',
+        state:{ F:500, e:0, n:1, r:1, th:0 },
+        // M=F*e=0; Fd=F/n=500; Ft=M*r/Σr²=0; FR = hypot(Fd+Ft·sin(th), Ft·cos(th)) = 500
+        checks:[ {key:'M',  expected:0,   tol:{abs:1e-9}},
+                 {key:'Fd', expected:500, tol:{abs:1e-9}},
+                 {key:'Ft', expected:0,   tol:{abs:1e-9}},
+                 {key:'FR', expected:500, tol:{abs:1e-6}} ] },
+      { mod:'m30', sec:'proof', label:'Grade 5 proof (1/2-13 UNC, At=0.1419, Sp=85 ksi)',
+        state:{ At:0.1419, Sp:85 },
+        // Sp_psi = 85·1000; Fp = 85000·0.1419 = 12061.5 lb
+        checks:[ {key:'Fp',  expected:85000*0.1419,         tol:{abs:1e-6}},
+                 {key:'Fpt', expected:0.75*85000*0.1419,    tol:{abs:1e-6}},
+                 {key:'Fps', expected:0.577*85000*0.1419,   tol:{abs:1e-6}} ] },
+
+      // ---------------- M40 ----------------
+      { mod:'m40', sec:'geom', label:'1.25 ACME, 4 TPI, dm=1.15',
+        state:{ TPI:4, starts:1, thread:'ACME', dm:1.15, mu:0.15 },
+        // p = 1/TPI = 0.25; l = starts·p = 0.25; alpha = 14.5° for ACME
+        checks:[ {key:'p',     expected:0.25, tol:{abs:1e-9}},
+                 {key:'l',     expected:0.25, tol:{abs:1e-9}},
+                 {key:'alpha', expected:14.5, tol:{abs:1e-9}} ] },
+      { mod:'m40', sec:'torque', label:'Square thread raise: W=800, l=0.2, dm=1.15, μ=0.15',
+        state:{ W:800, l:0.2, dm:1.15, muf:0.15, alpha:0, rpm:0 },
+        // Tr = (W·dm/2)·((l + π·μ·dm)/(π·dm − μ·l))
+        checks:[ {key:'Tr', expected:(800*1.15/2)*((0.2 + Math.PI*0.15*1.15)/(Math.PI*1.15 - 0.15*0.2)), tol:{rel:1e-9}} ] },
+
+      // ---------------- M50 ----------------
+      { mod:'m50', sec:'fillet', label:'1/4-in fillet leg, L=8, F=10000',
+        state:{ h:0.25, L:8, F:10000 },
+        // t = 0.707·h; A = t·L; tau = F/A
+        checks:[ {key:'t',   expected:0.707*0.25,                    tol:{abs:1e-9}},
+                 {key:'A',   expected:0.707*0.25*8,                  tol:{abs:1e-9}},
+                 {key:'tau', expected:10000/(0.707*0.25*8),          tol:{rel:1e-9}} ] },
+      { mod:'m50', sec:'electrode', label:'E70 electrode',
+        state:{ series:'E70' },
+        // Lookup: E70 → Fu=70, Sus=57
+        checks:[ {key:'Fu',  expected:70, tol:{abs:1e-9}},
+                 {key:'Sus', expected:57, tol:{abs:1e-9}} ] },
+
+      // ---------------- M60 ----------------
+      { mod:'m60', sec:'stress', label:'Mean / amplitude (σmax=60, σmin=-20)',
+        state:{ smax:60, smin:-20 },
+        checks:[ {key:'sm', expected:20,    tol:{abs:1e-9}},
+                 {key:'sa', expected:40,    tol:{abs:1e-9}},
+                 {key:'R',  expected:-20/60, tol:{abs:1e-9}} ] },
+      { mod:'m60', sec:'marin', label:"Marin: Sut=100 ksi → S'e = 50 ksi",
+        state:{ Sut:100, ka:1, kb:1, kc:1, kd:1, ke:1, Kf:1 },
+        // Seprime = 0.5·Sut for Sut ≤ 200 ksi
+        checks:[ {key:'Seprime', expected:50, tol:{abs:1e-9}},
+                 {key:'Se',      expected:50, tol:{abs:1e-9}},
+                 {key:'Senet',   expected:50, tol:{abs:1e-9}} ] },
+
+      // ---------------- M70 ----------------
+      { mod:'m70', sec:'static', label:'Round shaft d=1, M=2000, T=1500',
+        state:{ d:1, M:2000, T:1500 },
+        // c = 0.5; I = π/64; J = π/32
+        // sb (ksi) = M·c/I/1000; tt (ksi) = T·c/J/1000; svm = √(sb² + 3tt²)
+        checks:[ {key:'I',   expected:Math.PI/64, tol:{rel:1e-9}},
+                 {key:'J',   expected:Math.PI/32, tol:{rel:1e-9}},
+                 {key:'sb',  expected:(2000*0.5)/(Math.PI/64)/1000, tol:{rel:1e-9}},
+                 {key:'tt',  expected:(1500*0.5)/(Math.PI/32)/1000, tol:{rel:1e-9}} ] },
+      { mod:'m70', sec:'pressfit', label:'Steel/steel press fit sanity (positive p)',
+        state:{ delta:0.001, D:1.0, Eo:30, Ei:30, co:2.0, nu:0.3 },
+        // Eo, Ei in Mpsi; verify p > 0 and finite
+        checks:[ {key:'p', expected:null, tol:{positive:true}} ] },
+
+      // ---------------- M90 ----------------
+      { mod:'m90', sec:'l10', label:'Ball L10 (C=10, P=2, a=3)',
+        state:{ C:10, P:2, a:3, rpm:0 },
+        // L10rev = (C/P)^a = 125 Mrev (output unit is Mrev)
+        checks:[ {key:'L10rev', expected:Math.pow(10/2,3), tol:{rel:1e-9}} ] },
+      { mod:'m90', sec:'cfromL', label:'Required C for ball, P=4, L=500 Mrev',
+        state:{ P:4, L:500, a:3 },
+        // Creq = P · L^(1/a) = 4 · 500^(1/3)
+        checks:[ {key:'Creq', expected:4*Math.pow(500,1/3), tol:{rel:1e-9}} ] },
+
+      // ---------------- M110 ----------------
+      { mod:'m110', sec:'pst', label:'10 hp at 1750 rpm',
+        state:{ HP:10, rpm:1750 },
+        // Tin = HP·63025/rpm (lb·in); Tft = HP·5252/rpm (lb·ft)
+        checks:[ {key:'Tin', expected:10*63025/1750, tol:{rel:1e-9}},
+                 {key:'Tft', expected:10*5252/1750,  tol:{rel:1e-9}} ] },
+      { mod:'m110', sec:'spur', label:'Spur gear: Pd=8, Np=24, Ng=48',
+        state:{ Pd:8, Np:24, Ng:48 },
+        // p = π/Pd; dp = Np/Pd; dg = Ng/Pd; C = (dp+dg)/2; mG = Ng/Np
+        checks:[ {key:'p',  expected:Math.PI/8, tol:{rel:1e-9}},
+                 {key:'dp', expected:3.0,       tol:{abs:1e-9}},
+                 {key:'dg', expected:6.0,       tol:{abs:1e-9}},
+                 {key:'C',  expected:4.5,       tol:{abs:1e-9}},
+                 {key:'mG', expected:2.0,       tol:{abs:1e-9}} ] },
+      { mod:'m110', sec:'lewis', label:'Lewis: HP=10, rpm=1750, Pd=8, Np=24, F=1.5',
+        state:{ HP:10, rpm:1750, Pd:8, Np:24, F:1.5, Y:0, Kv:0 },
+        // d = Np/Pd = 3; V = π·d·rpm/12; Wt = HP·33000/V
+        checks:[ {key:'V',  expected:Math.PI*3*1750/12, tol:{rel:1e-9}},
+                 {key:'Wt', expected:10*33000/(Math.PI*3*1750/12), tol:{rel:1e-9}} ] },
+
+      // ---------------- M130 ----------------
+      { mod:'m130', sec:'cyl', label:'Bore 2", rod 0", P=2000 psi',
+        state:{ P:2000, Db:2, Dr:0 },
+        // Ab = π·Db²/4 = π; Fext = P·Ab = 2000π
+        checks:[ {key:'Ab',   expected:Math.PI,       tol:{rel:1e-9}},
+                 {key:'Ar',   expected:Math.PI,       tol:{rel:1e-9}},
+                 {key:'Fext', expected:2000*Math.PI,  tol:{rel:1e-9}} ] },
+      { mod:'m130', sec:'flow', label:'Q=10 gpm, A=π in², L=24 in',
+        state:{ Q:10, A:Math.PI, L:24 },
+        // Qin3s = Q·231/60; v = Qin3s/A
+        checks:[ {key:'Qin3s', expected:10*231/60,             tol:{rel:1e-9}},
+                 {key:'v',     expected:(10*231/60)/Math.PI,   tol:{rel:1e-9}} ] },
+      { mod:'m130', sec:'power', label:'Hydraulic power: P=2000, Q=10',
+        state:{ P:2000, Q:10 },
+        // HP = P·Q/1714
+        checks:[ {key:'HP', expected:2000*10/1714, tol:{rel:1e-6}} ] },
+      { mod:'m130', sec:'hoop', label:'Thin-wall hoop: ri=4.875, ro=5.125, P=1000',
+        state:{ P:1000, ri:4.875, ro:5.125 },
+        // t = ro-ri = 0.25; r = (ri+ro)/2 = 5.0; r/t = 20 → thin
+        // thin (ksi) = P·r/t/1000 = 1000·5/0.25/1000 = 20
+        checks:[ {key:'rt',    expected:20, tol:{rel:1e-9}},
+                 {key:'thin',  expected:20, tol:{rel:1e-9}},
+                 {key:'sigma', expected:20, tol:{rel:1e-9}} ] },
+
+      // ---------------- M150 ----------------
+      { mod:'m150', sec:'geom', label:'D=1, d=0.1, Plain ends, Na=10, G=11.5 Mpsi',
+        state:{ D:1, d:0.1, Na:10, ends:'Plain', G:11.5 },
+        // C = D/d = 10; Kw = (4C-1)/(4C-4) + 0.615/C
+        // G internally ·1e6; k = G·d^4 / (8·D³·Na) = 11.5e6·1e-4 / 80 = 14.375
+        checks:[ {key:'C',  expected:10, tol:{abs:1e-9}},
+                 {key:'Kw', expected:(4*10-1)/(4*10-4) + 0.615/10, tol:{abs:1e-9}},
+                 {key:'k',  expected:14.375, tol:{rel:1e-6}} ] }
+    ];
+
+    function approx(a, b, tol){
+      if (tol && tol.positive) return (typeof a === 'number' && isFinite(a) && a > 0);
+      if (a === null || a === undefined || !isFinite(a)) return false;
+      if (tol && tol.abs !== undefined) return Math.abs(a - b) <= tol.abs;
+      if (tol && tol.rel !== undefined) {
+        if (b === 0) return Math.abs(a) <= 1e-9;
+        return Math.abs((a - b) / b) <= tol.rel;
+      }
+      return false;
+    }
+
+    function fmtNum(v){
+      if (v === null || v === undefined) return '—';
+      if (typeof v !== 'number') return String(v);
+      if (!isFinite(v)) return String(v);
+      if (Math.abs(v) >= 1000 || (Math.abs(v) < 0.01 && v !== 0)) return v.toExponential(4);
+      return v.toFixed(6).replace(/0+$/,'').replace(/\.$/,'');
+    }
+
+    function tolStr(tol){
+      if (!tol) return '';
+      if (tol.positive) return '> 0';
+      if (tol.abs !== undefined) return '±' + tol.abs;
+      if (tol.rel !== undefined) return '±' + (tol.rel*100).toFixed(4) + '%';
+      return '';
+    }
+
+    function run(){
+      var tbody = document.querySelector('#tbl tbody');
+      var pass = 0, fail = 0, total = 0;
+      var lastMod = '';
+
+      TESTS.forEach(function(t){
+        var mod = window.MODULES[t.mod];
+        if (!mod) { console.warn('Missing module', t.mod); return; }
+        var sec = mod.sections.filter(function(s){ return s.id === t.sec; })[0];
+        if (!sec) { console.warn('Missing section', t.mod, t.sec); return; }
+
+        var result;
+        try { result = sec.compute(t.state, SETTINGS); }
+        catch (e) { result = { outputs:{}, _error: String(e) }; }
+
+        if (lastMod !== t.mod) {
+          var hr = document.createElement('tr');
+          hr.className = 'grp';
+          hr.innerHTML = '<td colspan="7">'+ mod.title +'</td>';
+          tbody.appendChild(hr);
+          lastMod = t.mod;
+        }
+
+        t.checks.forEach(function(c, idx){
+          total++;
+          var got = result.outputs ? result.outputs[c.key] : undefined;
+          var ok  = approx(got, c.expected, c.tol);
+          if (ok) pass++; else fail++;
+
+          var tr = document.createElement('tr');
+          tr.innerHTML =
+            '<td class="mono">'+ t.mod.toUpperCase() +'</td>' +
+            '<td>'+ (idx===0 ? (t.sec + ' — ' + t.label) : '') +'</td>' +
+            '<td class="mono">'+ c.key +'</td>' +
+            '<td class="mono">'+ fmtNum(got) +'</td>' +
+            '<td class="mono">'+ (c.tol && c.tol.positive ? '> 0' : fmtNum(c.expected)) +'</td>' +
+            '<td class="mono">'+ tolStr(c.tol) +'</td>' +
+            '<td class="'+ (ok?'ok':'bad') +'">'+ (ok?'PASS':'FAIL') +'</td>';
+          tbody.appendChild(tr);
+        });
+
+        if (result._error) {
+          var er = document.createElement('tr');
+          er.innerHTML = '<td class="bad" colspan="7">Error in '+ t.mod +'/'+ t.sec +': '+ result._error +'</td>';
+          tbody.appendChild(er);
+          fail++; total++;
+        }
+      });
+
+      var sum = document.getElementById('summary');
+      sum.innerHTML =
+        '<span class="test-pill pass">PASS: '+ pass +'</span>' +
+        '<span class="test-pill '+ (fail?'fail':'pass') +'">FAIL: '+ fail +'</span>' +
+        '<span>Total: '+ total +'</span>';
+    }
+
+    run();
+  })();
+  </script>
+</body>
+</html>
